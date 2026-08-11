@@ -1,7 +1,7 @@
 # bayesrs: an introduction, with worked examples
 
 This is the friendly companion to `INTERFACE.md` (the precise specification) and
-`bayesrs-design.md` (the design rationale). It is written for statisticians and
+`DECISIONS.md` (the design rationale). It is written for statisticians and
 students: it assumes you know what MCMC is, and assumes nothing about software
 engineering or about any particular programming language. The same worked
 example — a simple Bayesian linear regression — appears in Python, R, C, and

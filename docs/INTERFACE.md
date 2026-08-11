@@ -1,8 +1,7 @@
 # bayesrs v1 interface specification
 
-This is the normative interface for the first release. Where it conflicts with
-`bayesrs-design.md`, this document wins; the design note remains the rationale and
-background reading.
+This is the normative interface for the first release; `DECISIONS.md` records the
+rationale behind it.
 
 Settled here (2026-08-11): verbs are **`ask`/`tell`**; proposals are **copied out**
 (no live views), with named access via **`space.unpack()`**; v1 ships
