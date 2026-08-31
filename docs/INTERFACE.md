@@ -190,7 +190,7 @@ x0 = space.pack(                    # broadcasting: scalars/single values repeat
 Both accept arbitrary leading batch dimensions: `space.unpack(s.draws())` gives `p.mu` with shape `(n_chains, n_draws, 3)`.
 
 The unpacked object is also a mapping (`p["mu"]`), and every non-parameter attribute of it is underscore-prefixed, so parameter names can never collide with the object's own API as it grows.
-For the same reason the design note's `p.n_comp_i` suffix convention is dropped: convenience access is by **method**, never a name suffix that a parameter could legally claim.
+For the same reason, convenience access is by **method**, never a name suffix that a parameter could legally claim (an earlier draft's `p.n_comp_i` suffix convention was dropped on exactly this ground).
 Categorical blocks unpack as float64 codes like everything else (`p.z` is `0.0`/`1.0`/…); `p.as_int("z")` returns them as the host language's integer type, and — where labels were declared — `p.as_label("z")` returns labels (in R this is a factor).
 Both are sugar over the same column.
 
@@ -468,8 +468,8 @@ These are *named now* so that adding them breaks nobody:
 | Locally-informed discrete proposals (Zanella-style): evaluate all `k` candidate states in **one exchange** (`m = k · n_chains` rows) and propose from their weights — already legal under the variable-`m` contract; arrives as a `DiscreteMetropolis` option | §5.2 |
 | `warmup=` constructor keyword on samplers that need a distinct adaptation phase; `n_draws` counts stored draws only | §6 |
 | Incremental extraction: `draws(since=k)` returns draws `k..n_draws` only, so a monitor-every-block loop avoids re-copying the whole history (which is quadratic over a long run). Any "since last time I asked" convenience is a caller-held reader object with its own cursor (`s.draw_reader()`, one per consumer) — never hidden state in the sampler, so `draws()` and friends stay idempotent and independent consumers cannot steal each other's draws | §6 |
-| `run_compiled(fn_ptr, n)` escape hatch for compiled likelihoods | design note §7.4 |
-| Opt-in live views (`params(live=True)`) if profiling ever justifies them | design note §4.1 |
+| `run_compiled(fn_ptr, n)` escape hatch for compiled likelihoods | `DECISIONS.md` §7.6 |
+| Opt-in live views (`params(live=True)`) if profiling ever justifies them | `DECISIONS.md` §7.7 |
 | Checkpoint/restore of full sampler state (serde) — state is designed to be serialisable from day one (ChaCha8 is counter-based) | §6 `position()` covers crude restarts meanwhile |
 
 **Explicit non-goal:** trans-dimensional (reversible-jump) sampling.
