@@ -3,8 +3,8 @@ Rust library for Bayesian inference with an ask/tell interface
 
 ## Development
 
-bayesrs is a Rust core (`crates/bayesrs-core`) with Python (PyO3/maturin), C
-(cbindgen), and R (extendr) bindings. Working on the full project needs:
+bayesrs is a Rust core (`crates/bayesrs-core`) with Python (PyO3/maturin), C (cbindgen), and R (extendr) bindings.
+Working on the full project needs:
 
 | Tool | What for |
 |---|---|
@@ -43,5 +43,4 @@ Rscript -e 'dir.create(Sys.getenv("R_LIBS_USER"), recursive = TRUE)'
 Rscript -e 'install.packages(c("rextendr", "devtools", "testthat"), repos = "https://cloud.r-project.org")'
 ```
 
-On macOS, replace the apt lines with `brew install r` (Xcode command line tools
-provide the C toolchain).
+On macOS, replace the apt lines with `brew install r` (Xcode command line tools provide the C toolchain).

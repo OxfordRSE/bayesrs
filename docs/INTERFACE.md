@@ -1,16 +1,10 @@
 # bayesrs v1 interface specification
 
-This is the normative interface for the first release; `DECISIONS.md` records the
-rationale behind it.
+This is the normative interface for the first release; `DECISIONS.md` records the rationale behind it.
 
-Settled here (2026-08-11): verbs are **`ask`/`tell`**; proposals are **copied out**
-(no live views), with named access via **`space.unpack()`**.
+Settled here (2026-08-11): verbs are **`ask`/`tell`**; proposals are **copied out** (no live views), with named access via **`space.unpack()`**.
 
-Revised 2026-08-14: a basic discrete kind (**`Categorical`**), a discrete kernel
-(**`DiscreteMetropolis`**), and block composition (**`Gibbs`**) are promoted into
-v1, so the extensibility claims are verified by shipping code rather than on
-paper. v1 therefore ships four samplers: **RandomWalkMetropolis**,
-**AdaptiveMetropolis**, **DiscreteMetropolis**, and the **Gibbs** compositor.
+Revised 2026-08-14: a basic discrete kind (**`Categorical`**), a discrete kernel (**`DiscreteMetropolis`**), and block composition (**`Gibbs`**) are promoted into v1, so the extensibility claims are verified by shipping code rather than on paper. v1 therefore ships four samplers: **RandomWalkMetropolis**, **AdaptiveMetropolis**, **DiscreteMetropolis**, and the **Gibbs** compositor.
 `Integer` and `Binary` kinds remain reserved for v2.
 
 ---
@@ -19,20 +13,14 @@ paper. v1 therefore ships four samplers: **RandomWalkMetropolis**,
 
 **In:**
 
-- Schema (`ParamSpace`) with kinds `Real`, `Bounded`, `Simplex`, `CovMatrix`,
-  `Categorical`
-- Samplers: `RandomWalkMetropolis`, `AdaptiveMetropolis` (Haario),
-  `DiscreteMetropolis`, and the `Gibbs` block compositor (§5.3)
-- The `ask`/`tell` protocol (including `reanchor`), draw storage, per-chain
-  acceptance statistics
+- Schema (`ParamSpace`) with kinds `Real`, `Bounded`, `Simplex`, `CovMatrix`, `Categorical`
+- Samplers: `RandomWalkMetropolis`, `AdaptiveMetropolis` (Haario), `DiscreteMetropolis`, and the `Gibbs` block compositor (§5.3)
+- The `ask`/`tell` protocol (including `reanchor`), draw storage, per-chain acceptance statistics
 - Diagnostics: rank-normalised split-R̂, bulk ESS, tail ESS (Vehtari et al. 2021)
 - Bindings: Python (PyO3/maturin), C (cbindgen header), R (extendr)
 - Cross-language bit-reproducibility of chains given identical `tell` values
 
-**Out, with names/wire format reserved (§10):** discrete kinds `Integer` and
-`Binary`, `CorrMatrix`, `Cholesky`, `Custom`, gradient-based samplers
-(MALA/HMC/NUTS), DE-MCMC, parallel tempering, SMC, the `Compose`
-mixture-of-kernels compositor, `run_compiled`, live views, checkpointing.
+**Out, with names/wire format reserved (§10):** discrete kinds `Integer` and `Binary`, `CorrMatrix`, `Cholesky`, `Custom`, gradient-based samplers (MALA/HMC/NUTS), DE-MCMC, parallel tempering, SMC, the `Compose` mixture-of-kernels compositor, `run_compiled`, live views, checkpointing.
 
 ---
 
@@ -46,18 +34,14 @@ A sampler is a state machine with two states:
              ◄────────── tell(...)
 ```
 
-- `ask()` in `READY` → returns an `(m, d_constr)` array of points in **constrained
-  space** whose log densities the caller must evaluate; sampler moves to
-  `WAITING_FOR_TELL`.
-- `tell(logp)` in `WAITING_FOR_TELL` → consumes exactly `m` log-density values
-  (ordered to match the rows of the last `ask`); sampler moves to `READY`.
-- `ask()` in `WAITING_FOR_TELL` is an **error**: *"ask() called again before tell();
-  tell() the results of the previous ask() first."*
+- `ask()` in `READY` → returns an `(m, d_constr)` array of points in **constrained space** whose log densities the caller must evaluate; sampler moves to `WAITING_FOR_TELL`.
+- `tell(logp)` in `WAITING_FOR_TELL` → consumes exactly `m` log-density values (ordered to match the rows of the last `ask`); sampler moves to `READY`.
+- `ask()` in `WAITING_FOR_TELL` is an **error**: *"ask() called again before tell(); tell() the results of the previous ask() first."*
 - `tell()` in `READY` is an **error**: *"tell() called with no outstanding ask()."*
 
-**Draw counting, not iteration counting.** Callers must not assume one
-`ask`/`tell` exchange produces one draw. The contract is: draws accumulate as the
-sampler completes them, and `n_draws` reports the count of stored draws per chain.
+**Draw counting, not iteration counting.**
+Callers must not assume one `ask`/`tell` exchange produces one draw.
+The contract is: draws accumulate as the sampler completes them, and `n_draws` reports the count of stored draws per chain.
 The canonical loop is:
 
 ```python
@@ -66,44 +50,33 @@ while s.n_draws < N:
     s.tell(logp(theta))
 ```
 
-For the three base samplers, `m == n_chains` and every `tell` after the first
-completes exactly one draw per chain. **`Gibbs` does not obey that arithmetic:**
-one draw is one full sweep over its blocks, so a draw takes several exchanges
-(§5.3) — the general loop contract is exercised by a shipped sampler, not only
-by the test-suite mock. Future samplers (NUTS tree-building) will additionally
-return `m != n_chains`. The `while`-loop form is the only loop the
-documentation teaches.
+For the three base samplers, `m == n_chains` and every `tell` after the first completes exactly one draw per chain.
+**`Gibbs` does not obey that arithmetic:** one draw is one full sweep over its blocks, so a draw takes several exchanges (§5.3) — the general loop contract is exercised by a shipped sampler, not only by the test-suite mock.
+Future samplers (NUTS tree-building) will additionally return `m != n_chains`.
+The `while`-loop form is the only loop the documentation teaches.
 
-**Initialisation is the first exchange.** The constructor takes starting positions
-`x0`; the sampler never invents them (it does not know the prior). The **first**
-`ask()` returns `x0` itself, and the first `tell` records those densities without
-an accept/reject step and stores `x0` as draw 0 (`n_draws` becomes 1). Every
-subsequent `tell` performs the Metropolis step. The user's loop is therefore
-identical from iteration zero.
+**Initialisation is the first exchange.**
+The constructor takes starting positions `x0`; the sampler never invents them (it does not know the prior).
+The **first** `ask()` returns `x0` itself, and the first `tell` records those densities without an accept/reject step and stores `x0` as draw 0 (`n_draws` becomes 1).
+Every subsequent `tell` performs the Metropolis step.
+The user's loop is therefore identical from iteration zero.
 
-**`tell` payload.** Each sampler declares which fields it requires. Both v1
-samplers require exactly `logp`, shape `(m,)`, float64. The field names `grad`,
-`log_lik`, `log_prior`, `metric` are reserved (§10), and future samplers may
-require different combinations (NUTS: `logp` + `grad`; parallel tempering:
-`log_lik` + `log_prior`, with `logp` derived) — `logp` is required by every v1
-sampler, not by the protocol itself. Passing a field the sampler does not use
-is an **error** naming the sampler and the field — it means the caller is
-computing something that is being thrown away.
+**`tell` payload.**
+Each sampler declares which fields it requires.
+Both v1 samplers require exactly `logp`, shape `(m,)`, float64.
+The field names `grad`, `log_lik`, `log_prior`, `metric` are reserved (§10), and future samplers may require different combinations (NUTS: `logp` + `grad`; parallel tempering: `log_lik` + `log_prior`, with `logp` derived) — `logp` is required by every v1 sampler, not by the protocol itself.
+Passing a field the sampler does not use is an **error** naming the sampler and the field — it means the caller is computing something that is being thrown away.
 
-**Return value of `tell`:** nothing. Monitoring goes through `stats()` (§6).
+**Return value of `tell`:** nothing.
+Monitoring goes through `stats()` (§6).
 
-**`reanchor(logp)` — part of the sampler contract.** Legal only in `READY`;
-takes `(n_chains,)` float64 and replaces the sampler's cached current-point
-log densities. It exists for **external composition** (§5.4): when the caller
-alternates two samplers over disjoint parameter blocks, an accepted move in
-one block silently invalidates the other sampler's cached density, and every
-subsequent acceptance ratio would be wrong. `reanchor` is how the caller
-passes the corrected value across — a value it already holds from the other
-sampler's `tell`, so re-anchoring never costs a density evaluation. The same
-validation rules as `tell(logp)` apply (`NaN`/`+inf` fatal), except `-inf` is
-fatal here too — the current point must be inside the support. Calling it in
-`WAITING_FOR_TELL` is an error. `Gibbs` performs the equivalent bookkeeping
-internally; users of a single sampler never need it.
+**`reanchor(logp)` — part of the sampler contract.**
+Legal only in `READY`; takes `(n_chains,)` float64 and replaces the sampler's cached current-point log densities.
+It exists for **external composition** (§5.4): when the caller alternates two samplers over disjoint parameter blocks, an accepted move in one block silently invalidates the other sampler's cached density, and every subsequent acceptance ratio would be wrong.
+`reanchor` is how the caller passes the corrected value across — a value it already holds from the other sampler's `tell`, so re-anchoring never costs a density evaluation.
+The same validation rules as `tell(logp)` apply (`NaN`/`+inf` fatal), except `-inf` is fatal here too — the current point must be inside the support.
+Calling it in `WAITING_FOR_TELL` is an error.
+`Gibbs` performs the equivalent bookkeeping internally; users of a single sampler never need it.
 
 ---
 
@@ -118,14 +91,9 @@ internally; users of a single sampler never need it.
 | `NaN` | broken likelihood | **error**, naming the chain index |
 | wrong length / dtype not castable to float64 | caller bug | **error** stating expected shape |
 
-Errors from `tell` leave the sampler in `WAITING_FOR_TELL` with its chain state
-untouched: the caller can fix the problem and `tell` again.
+Errors from `tell` leave the sampler in `WAITING_FOR_TELL` with its chain state untouched: the caller can fix the problem and `tell` again.
 
-`x0` is validated at construction against every block's constraints (bounds
-**strictly** respected — a boundary value has no free-space image, see §4.2 —
-simplexes sum to 1 within tolerance with strictly positive entries, covariance
-blocks symmetric positive-definite, categorical entries exactly whole-valued
-and in `0..k−1`), with errors naming the block and chain.
+`x0` is validated at construction against every block's constraints (bounds **strictly** respected — a boundary value has no free-space image, see §4.2 — simplexes sum to 1 within tolerance with strictly positive entries, covariance blocks symmetric positive-definite, categorical entries exactly whole-valued and in `0..k−1`), with errors naming the block and chain.
 
 ---
 
@@ -133,8 +101,8 @@ and in `0..k−1`), with errors naming the block and chain.
 
 ### 4.1 Construction
 
-Names map to kinds; each kind carries its own shape. Declaration order fixes the
-column order of every array in the system.
+Names map to kinds; each kind carries its own shape.
+Declaration order fixes the column order of every array in the system.
 
 ```python
 from bayesrs import ParamSpace, Real, Bounded, Simplex, CovMatrix, Categorical
@@ -150,34 +118,23 @@ space.d_free     # 3 + 1 + 6 + 3 + 1 = 14
 space.d_constr   # 3 + 1 + 9 + 4 + 1 = 18
 ```
 
-`Categorical(k, labels=None)` declares one of `k` **unordered** states. On the
-wire the value is always its code — a whole-valued float64 in `0..k−1`
-(zero-based in every language; exact, doubles represent every integer up to
-~9×10¹⁵). `labels`, an optional sequence of `k` strings, is presentation-only
-sugar attached to the schema: bindings may surface it (`unpack`, R factors,
-printed summaries) but it never appears in any array. `Categorical` takes any
-shape, elementwise like `Real`. A one-of-K choice is **one** categorical
-coordinate, never K binary indicators — indicator encodings make invalid
-states (two hot, none hot) representable, and no kernel here will maintain
-that constraint for you.
+`Categorical(k, labels=None)` declares one of `k` **unordered** states.
+On the wire the value is always its code — a whole-valued float64 in `0..k−1` (zero-based in every language; exact, doubles represent every integer up to ~9×10¹⁵).
+`labels`, an optional sequence of `k` strings, is presentation-only sugar attached to the schema: bindings may surface it (`unpack`, R factors, printed summaries) but it never appears in any array.
+`Categorical` takes any shape, elementwise like `Real`.
+A one-of-K choice is **one** categorical coordinate, never K binary indicators — indicator encodings make invalid states (two hot, none hot) representable, and no kernel here will maintain that constraint for you.
 
-`ParamSpace` also accepts an ordered mapping of name → kind
-(`ParamSpace({"mu": Real(shape=3), ...})`). The keyword form is sugar; because
-its keywords are all parameter names, any future constructor *option* goes on
-the mapping form (or a classmethod) — options never compete with parameter
-names for keyword slots.
+`ParamSpace` also accepts an ordered mapping of name → kind (`ParamSpace({"mu": Real(shape=3), ...})`).
+The keyword form is sugar; because its keywords are all parameter names, any future constructor *option* goes on the mapping form (or a classmethod) — options never compete with parameter names for keyword slots.
 
-Names must be valid identifiers in the host language (they become attributes /
-list names). Shape rules: `Real`, `Bounded`, and `Categorical` take any shape
-(constraints elementwise); `Simplex(k)` is a length-`k` vector; `CovMatrix(n)` is `n × n`.
-Matrix-valued blocks are flattened row-major into their columns of the
-constrained vector.
+Names must be valid identifiers in the host language (they become attributes / list names).
+Shape rules: `Real`, `Bounded`, and `Categorical` take any shape (constraints elementwise); `Simplex(k)` is a length-`k` vector; `CovMatrix(n)` is `n × n`.
+Matrix-valued blocks are flattened row-major into their columns of the constrained vector.
 
 ### 4.2 Transforms (frozen, Stan-compatible)
 
-Each kind defines the free↔constrained map and its log-Jacobian. These follow the
-Stan Reference Manual's constraint transforms exactly, so they are documented,
-battle-tested, and cross-checkable:
+Each kind defines the free↔constrained map and its log-Jacobian.
+These follow the Stan Reference Manual's constraint transforms exactly, so they are documented, battle-tested, and cross-checkable:
 
 | Kind | d_free | Transform |
 |---|---|---|
@@ -189,24 +146,16 @@ battle-tested, and cross-checkable:
 | `CovMatrix(n)` | n(n+1)/2 | Cholesky factor, log-transformed diagonal |
 | `Categorical(k)` | = d_constr | identity (whole-valued code, zero log-Jacobian) |
 
-**Boundary semantics (settled).** `Bounded(lo, hi)` and `Simplex` intervals
-are **open**: endpoints carry no probability mass for a continuous parameter,
-so no open/closed API distinction exists or is needed (mass *at* a boundary is
-a mixed distribution — a different model, out of scope). The transforms are
-open-interval by construction, but in floating point the endpoints are
-reachable by rounding (`exp(z)` underflows; `sigmoid(z)` rounds to 0 or 1 for
-`|z| ≳ 37`). Therefore `to_constrained` **clamps boundary-rounded values to
-the nearest representable interior value** (one `nextafter`), so user-visible
-values satisfy their strict inequalities unconditionally — the "no guards
-needed" guarantee has no floating-point asterisk. Symmetrically, `x0`
-validation and `to_free` use strict inequalities: a value exactly on a
-boundary is invalid input (the free-space image does not exist).
+**Boundary semantics (settled).**
+`Bounded(lo, hi)` and `Simplex` intervals are **open**: endpoints carry no probability mass for a continuous parameter, so no open/closed API distinction exists or is needed (mass *at* a boundary is a mixed distribution — a different model, out of scope).
+The transforms are open-interval by construction, but in floating point the endpoints are reachable by rounding (`exp(z)` underflows; `sigmoid(z)` rounds to 0 or 1 for `|z| ≳ 37`).
+Therefore `to_constrained` **clamps boundary-rounded values to the nearest representable interior value** (one `nextafter`), so user-visible values satisfy their strict inequalities unconditionally — the "no guards needed" guarantee has no floating-point asterisk.
+Symmetrically, `x0` validation and `to_free` use strict inequalities: a value exactly on a boundary is invalid input (the free-space image does not exist).
 
-**Jacobian convention (settled).** The caller's `logp` is the log density of the
-**constrained** parameters with respect to Lebesgue measure on the constrained
-space — the density you would write on paper. The library adds
-`log |det J(free → constrained)|` internally when it compares densities in free
-space. The caller never sees or applies a Jacobian.
+**Jacobian convention (settled).**
+The caller's `logp` is the log density of the **constrained** parameters with respect to Lebesgue measure on the constrained space — the density you would write on paper.
+The library adds `log |det J(free → constrained)|` internally when it compares densities in free space.
+The caller never sees or applies a Jacobian.
 
 For testing and debugging, the transforms are public pure functions:
 
@@ -216,21 +165,15 @@ space.to_constrained(z_free)             # (..., d_free) → (..., d_constr)
 space.log_abs_det_jacobian(z_free)       # (..., d_free) → (...)
 ```
 
-These three signatures are **final**, and the rule that keeps them final under
-discrete kinds is now shipped, not reserved: discrete columns ride through the
-free vector unchanged (identity map, zero log-Jacobian, counted in `d_free`),
-so the free vector always determines the constrained vector completely.
-`to_free` validates that categorical entries are exactly whole-valued and in
-range. Samplers learn which free columns are discrete from the schema, not
-from the wire format; the same rule covers the reserved `Integer` and `Binary`
-kinds (§10).
+These three signatures are **final**, and the rule that keeps them final under discrete kinds is now shipped, not reserved: discrete columns ride through the free vector unchanged (identity map, zero log-Jacobian, counted in `d_free`), so the free vector always determines the constrained vector completely.
+`to_free` validates that categorical entries are exactly whole-valued and in range.
+Samplers learn which free columns are discrete from the schema, not from the wire format; the same rule covers the reserved `Integer` and `Binary` kinds (§10).
 
 ### 4.3 `pack` / `unpack`
 
-Naming lives on the schema, not the sampler. `unpack` wraps a constrained array
-in named, correctly-shaped **views into that array** (zero-copy, no lifetime
-hazard — the caller owns the array). `pack` is its inverse, and is how `x0` is
-built ergonomically.
+Naming lives on the schema, not the sampler.
+`unpack` wraps a constrained array in named, correctly-shaped **views into that array** (zero-copy, no lifetime hazard — the caller owns the array).
+`pack` is its inverse, and is how `x0` is built ergonomically.
 
 ```python
 theta = s.ask()                     # (m, 17), caller-owned
@@ -244,35 +187,25 @@ x0 = space.pack(                    # broadcasting: scalars/single values repeat
 )                                   # → (8, 17)
 ```
 
-Both accept arbitrary leading batch dimensions: `space.unpack(s.draws())` gives
-`p.mu` with shape `(n_chains, n_draws, 3)`.
+Both accept arbitrary leading batch dimensions: `space.unpack(s.draws())` gives `p.mu` with shape `(n_chains, n_draws, 3)`.
 
-The unpacked object is also a mapping (`p["mu"]`), and every non-parameter
-attribute of it is underscore-prefixed, so parameter names can never collide
-with the object's own API as it grows. For the same reason the design note's
-`p.n_comp_i` suffix convention is dropped: convenience access is by **method**,
-never a name suffix that a parameter could legally claim. Categorical blocks
-unpack as float64 codes like everything else (`p.z` is `0.0`/`1.0`/…);
-`p.as_int("z")` returns them as the host language's integer type, and — where
-labels were declared — `p.as_label("z")` returns labels (in R this is a
-factor). Both are sugar over the same column.
+The unpacked object is also a mapping (`p["mu"]`), and every non-parameter attribute of it is underscore-prefixed, so parameter names can never collide with the object's own API as it grows.
+For the same reason the design note's `p.n_comp_i` suffix convention is dropped: convenience access is by **method**, never a name suffix that a parameter could legally claim.
+Categorical blocks unpack as float64 codes like everything else (`p.z` is `0.0`/`1.0`/…); `p.as_int("z")` returns them as the host language's integer type, and — where labels were declared — `p.as_label("z")` returns labels (in R this is a factor).
+Both are sugar over the same column.
 
-`space.names()` returns the flattened per-column names in declaration order
-(`"mu[0]", …, "Sigma[0,0]", …`); each binding uses its language's index base
-(0-based Python/C, 1-based R) but the **order** is identical everywhere.
+`space.names()` returns the flattened per-column names in declaration order (`"mu[0]", …, "Sigma[0,0]", …`); each binding uses its language's index base (0-based Python/C, 1-based R) but the **order** is identical everywhere.
 
 ---
 
 ## 5. Samplers
 
-All samplers are constructed from `(space, x0, seed)`; `n_chains` is inferred
-from `x0.shape[0]`. Tuning parameter *names* below are frozen; their default
-*values* are initial choices from the literature, tunable until 1.0.
+All samplers are constructed from `(space, x0, seed)`; `n_chains` is inferred from `x0.shape[0]`.
+Tuning parameter *names* below are frozen; their default *values* are initial choices from the literature, tunable until 1.0.
 
-**Kind validation (no longer vacuous).** A sampler validates at construction
-that it supports every kind in the space, and errors otherwise naming the
-sampler and the block. No sampler ever coerces: a Gaussian step on a category
-code is a construction error, never a silent behaviour.
+**Kind validation (no longer vacuous).**
+A sampler validates at construction that it supports every kind in the space, and errors otherwise naming the sampler and the block.
+No sampler ever coerces: a Gaussian step on a category code is a construction error, never a silent behaviour.
 
 | Sampler | Accepts | Rejects |
 |---|---|---|
@@ -293,9 +226,8 @@ AdaptiveMetropolis(space, x0, *, seed,   # Haario et al. (2001), diminishing ada
     sd=None)               # scale factor; default 2.38²/d_free
 ```
 
-Proposal covariances are in **free space** — that is where proposing happens, and
-it is documented as such. Adaptation uses diminishing step sizes and runs for the
-whole chain (ergodic; no separate warmup phase to configure in v1).
+Proposal covariances are in **free space** — that is where proposing happens, and it is documented as such.
+Adaptation uses diminishing step sizes and runs for the whole chain (ergodic; no separate warmup phase to configure in v1).
 
 ### 5.2 `DiscreteMetropolis`
 
@@ -303,22 +235,14 @@ whole chain (ergodic; no separate warmup phase to configure in v1).
 DiscreteMetropolis(space, x0, *, seed)   # no tuning options in v1
 ```
 
-A Metropolis kernel for categorical coordinates. Per exchange it perturbs
-**one coordinate per chain**, sweeping deterministically through its
-coordinates in declaration order; one draw = one full sweep, so a space with
-`c` categorical coordinates takes `c` exchanges per draw (one, for a single
-scalar). The proposal is **uniform over the other `k−1` states** — symmetric,
-so acceptance is the plain Metropolis ratio; for `k = 2` this is the
-deterministic flip, which never wastes an evaluation re-proposing the current
-state. Within-sweep strategy is kernel-internal policy; richer proposals
-(locally-informed / multi-candidate) are reserved (§10) and arrive as options
-or new kernels, not as protocol changes.
+A Metropolis kernel for categorical coordinates.
+Per exchange it perturbs **one coordinate per chain**, sweeping deterministically through its coordinates in declaration order; one draw = one full sweep, so a space with `c` categorical coordinates takes `c` exchanges per draw (one, for a single scalar).
+The proposal is **uniform over the other `k−1` states** — symmetric, so acceptance is the plain Metropolis ratio; for `k = 2` this is the deterministic flip, which never wastes an evaluation re-proposing the current state.
+Within-sweep strategy is kernel-internal policy; richer proposals (locally-informed / multi-candidate) are reserved (§10) and arrive as options or new kernels, not as protocol changes.
 
 ### 5.3 `Gibbs` — block composition
 
-The compositor for models whose kinds no single kernel accepts (the standard
-case: continuous parameters plus a categorical), and generally for
-Metropolis-within-Gibbs blocking:
+The compositor for models whose kinds no single kernel accepts (the standard case: continuous parameters plus a categorical), and generally for Metropolis-within-Gibbs blocking:
 
 ```python
 Gibbs(space, x0, *, seed, blocks=[
@@ -329,57 +253,34 @@ Gibbs(space, x0, *, seed, blocks=[
 
 Rules, all checked at construction:
 
-- `blocks` must **partition** the parameter names exactly — every name in
-  exactly one block — at whole-parameter granularity (a `Simplex` or
-  `CovMatrix` is never split across blocks). Overlapping blocks are reserved
-  for a future `Compose` mixture-of-kernels compositor (§10), not a loosened
-  rule here.
-- A `Block` holds names plus a sampler *type and its options* — never a
-  constructed sampler. `Gibbs` constructs each block's sampler itself on the
-  projected subspace, with sliced `x0` and derived RNG streams; that is the
-  only way seeding and validation stay coherent.
-- Each block's sampler validates its own kinds, so e.g. `NUTS`-on-categorical
-  is impossible by construction once NUTS exists.
+- `blocks` must **partition** the parameter names exactly — every name in exactly one block — at whole-parameter granularity (a `Simplex` or `CovMatrix` is never split across blocks).
+  Overlapping blocks are reserved for a future `Compose` mixture-of-kernels compositor (§10), not a loosened rule here.
+- A `Block` holds names plus a sampler *type and its options* — never a constructed sampler.
+  `Gibbs` constructs each block's sampler itself on the projected subspace, with sliced `x0` and derived RNG streams; that is the only way seeding and validation stay coherent.
+- Each block's sampler validates its own kinds, so e.g. `NUTS`-on-categorical is impossible by construction once NUTS exists.
 
-Semantics: one **draw = one full sweep** over the blocks in declared order
-(deterministic scan; `scan="random"` is reserved, §10). Each block runs its
-complete kernel step — however many exchanges that costs — against the full
-log density, with the other blocks frozen at their current values; every
-`ask()` therefore presents **full-dimensional** points. Control passes to the
-next block when the current block's kernel *completes its draw*, never on
-acceptance. The density told for an accepted point is carried across the
-block boundary as the next block's current-point density, so a sweep costs
-exactly the sum of its blocks' evaluations with no re-evaluation at the
-seams. In v1 all block kernels take a fixed number of exchanges, so chains
-advance in lockstep; per-chain asynchronous block scheduling (chains in
-different blocks within one batch) is reserved for when NUTS blocks make
-sweeps variable-length (§10).
+Semantics: one **draw = one full sweep** over the blocks in declared order (deterministic scan; `scan="random"` is reserved, §10).
+Each block runs its complete kernel step — however many exchanges that costs — against the full log density, with the other blocks frozen at their current values; every `ask()` therefore presents **full-dimensional** points.
+Control passes to the next block when the current block's kernel *completes its draw*, never on acceptance.
+The density told for an accepted point is carried across the block boundary as the next block's current-point density, so a sweep costs exactly the sum of its blocks' evaluations with no re-evaluation at the seams.
+In v1 all block kernels take a fixed number of exchanges, so chains advance in lockstep; per-chain asynchronous block scheduling (chains in different blocks within one batch) is reserved for when NUTS blocks make sweeps variable-length (§10).
 
-The user's loop is identical to the single-sampler case; only the number of
-exchanges per draw changes.
+The user's loop is identical to the single-sampler case; only the number of exchanges per draw changes.
 
 ### 5.4 External composition (the escape hatch)
 
-The compositor is not a gate: the caller may run their own alternation over
-two or more independently constructed samplers whose spaces partition the
-model's parameters, joining current values, evaluating the full density, and
-telling each sampler in turn. This is fully supported, with one obligation
-the compositor otherwise hides: **after a block accepts a move, `reanchor`
-(§2) every other sampler with the density value you already hold.** Skipping
-it produces a subtly wrong chain, not an error — the docs say this loudly.
+The compositor is not a gate: the caller may run their own alternation over two or more independently constructed samplers whose spaces partition the model's parameters, joining current values, evaluating the full density, and telling each sampler in turn.
+This is fully supported, with one obligation the compositor otherwise hides: **after a block accepts a move, `reanchor` (§2) every other sampler with the density value you already hold.**
+Skipping it produces a subtly wrong chain, not an error — the docs say this loudly.
 
 ### 5.5 RNG
 
-**Frozen for bit-reproducibility.** All randomness comes from **ChaCha8**
-streams derived deterministically from `(seed: u64, stream_id: u64)` via a
-documented SplitMix64 expansion. Chains use stream ids `0..n_chains`; higher
-ids are reserved for sampler-level randomness. `Gibbs` derives its block
-samplers' stream ids from that reserved range by a documented rule
-(`(block_index + 1) · 2³² + chain`), so composition never perturbs the base
-per-chain streams and adding blocks or future cross-chain moves never
-perturbs each other. No binding ever touches its host language's RNG. The
-derivation is part of the interface: same seed, same schema, same `tell`
-values ⇒ bit-identical chains in Python, R, and C.
+**Frozen for bit-reproducibility.**
+All randomness comes from **ChaCha8** streams derived deterministically from `(seed: u64, stream_id: u64)` via a documented SplitMix64 expansion.
+Chains use stream ids `0..n_chains`; higher ids are reserved for sampler-level randomness.
+`Gibbs` derives its block samplers' stream ids from that reserved range by a documented rule (`(block_index + 1) · 2³² + chain`), so composition never perturbs the base per-chain streams and adding blocks or future cross-chain moves never perturbs each other.
+No binding ever touches its host language's RNG.
+The derivation is part of the interface: same seed, same schema, same `tell` values ⇒ bit-identical chains in Python, R, and C.
 
 ---
 
@@ -394,35 +295,21 @@ s.stats()          # {"n_draws": int, "acceptance_rate": (n_chains,), ...}
 s.proposal_cov()   # (d_free, d_free) copy — AdaptiveMetropolis only
 ```
 
-`stats()` may gain keys in later versions; callers must ignore keys they do not
-recognise. For `Gibbs`, `stats()["blocks"]` is a list of the block samplers'
-own stats dicts in block order (so per-block acceptance rates are separately
-visible — a healthy continuous block and a stuck discrete block should never
-average into one number). The `n_draws` invariant is: `n_draws` always equals the number of
-draws `draws()` returns — a future sampler with a configurable warmup phase
-counts only stored post-warmup draws. **Definition for asynchronous samplers
-(settled now):** a future sampler may complete draws at different rates per
-chain (NUTS trees terminate independently, and the efficient schedule lets
-each chain start its next trajectory immediately rather than idle). `n_draws`
-is then the number of complete draws available from **every** chain — the
-minimum across chains — so `while n_draws < N` still means "until every chain
-has N draws", and `draws()` returns exactly that rectangle. A chain's surplus
-draws beyond the minimum are retained, not deleted: they enter the rectangle
-as slower chains catch up, and are only left unsurfaced if sampling stops
-first. (Whether such a sampler caps how far a chain may run ahead — pausing
-it, shrinking `m` — is internal scheduling policy, free to tune.) For v1
-samplers chains advance in lockstep and this reduces to the obvious count.
+`stats()` may gain keys in later versions; callers must ignore keys they do not recognise.
+For `Gibbs`, `stats()["blocks"]` is a list of the block samplers' own stats dicts in block order (so per-block acceptance rates are separately visible — a healthy continuous block and a stuck discrete block should never average into one number).
+The `n_draws` invariant is: `n_draws` always equals the number of draws `draws()` returns — a future sampler with a configurable warmup phase counts only stored post-warmup draws.
+**Definition for asynchronous samplers (settled now):** a future sampler may complete draws at different rates per chain (NUTS trees terminate independently, and the efficient schedule lets each chain start its next trajectory immediately rather than idle).
+`n_draws` is then the number of complete draws available from **every** chain — the minimum across chains — so `while n_draws < N` still means "until every chain has N draws", and `draws()` returns exactly that rectangle.
+A chain's surplus draws beyond the minimum are retained, not deleted: they enter the rectangle as slower chains catch up, and are only left unsurfaced if sampling stops first.
+(Whether such a sampler caps how far a chain may run ahead — pausing it, shrinking `m` — is internal scheduling policy, free to tune.)
+For v1 samplers chains advance in lockstep and this reduces to the obvious count.
 
-Internal chain storage is in **free space** (smaller: `d_free` ≤ `d_constr`);
-`draws()` maps to constrained space on extraction. `thin=k` (constructor keyword,
-default 1, on both samplers) stores every k-th draw; `n_draws` counts *stored*
-draws; draw 0 is always stored.
+Internal chain storage is in **free space** (smaller: `d_free` ≤ `d_constr`); `draws()` maps to constrained space on extraction.
+`thin=k` (constructor keyword, default 1, on both samplers) stores every k-th draw; `n_draws` counts *stored* draws; draw 0 is always stored.
 
-Memory rule of thumb documented prominently: `n_chains × n_draws × d_free × 8`
-bytes — 8 chains × 1M draws × 13 free dims ≈ 0.8 GB. `thin` is the lever.
-(`draws()` may be called mid-run at any time — checking diagnostics every N
-draws is an intended workflow; a reserved `draws(since=k)` makes that cheap
-for very long runs, see §10.)
+Memory rule of thumb documented prominently: `n_chains × n_draws × d_free × 8` bytes — 8 chains × 1M draws × 13 free dims ≈ 0.8 GB.
+`thin` is the lever.
+(`draws()` may be called mid-run at any time — checking diagnostics every N draws is an intended workflow; a reserved `draws(since=k)` makes that cheap for very long runs, see §10.)
 
 **Diagnostics** (implemented in the core, exposed in every binding):
 
@@ -432,17 +319,12 @@ bayesrs.diagnostics.ess_bulk(draws)   # → (d_constr,)
 bayesrs.diagnostics.ess_tail(draws)   # → (d_constr,)
 ```
 
-These take `(n_chains, n_draws, d)` (or `(n_chains, n_draws)` for one
-dimension). Python users are pointed at ArviZ for everything richer; the draws
-array plus `space.names()` is enough to build an `InferenceData`.
+These take `(n_chains, n_draws, d)` (or `(n_chains, n_draws)` for one dimension).
+Python users are pointed at ArviZ for everything richer; the draws array plus `space.names()` is enough to build an `InferenceData`.
 
-Categorical columns come out of `draws()` as their whole-valued codes, like
-every other column. The diagnostics run on codes as ordinary numbers: for
-`k = 2` that is R̂/ESS of an indicator, which is meaningful; for unordered
-`k > 2` the per-column numbers are not meaningful and the documentation says
-to compute diagnostics on indicator functions (`draws == c`) of the states
-you care about instead. Whether the library should do that itself is an open
-item (§13).
+Categorical columns come out of `draws()` as their whole-valued codes, like every other column.
+The diagnostics run on codes as ordinary numbers: for `k = 2` that is R̂/ESS of an indicator, which is meaningful; for unordered `k > 2` the per-column numbers are not meaningful and the documentation says to compute diagnostics on indicator functions (`draws == c`) of the states you care about instead.
+Whether the library should do that itself is an open item (§13).
 
 ---
 
@@ -476,23 +358,19 @@ draws = s.draws()                                  # (8, 50000, 2)
 print(diagnostics.rhat(draws))                     # column order = space.names()
 ```
 
-- `ask()` returns a **fresh, caller-owned, C-contiguous** float64 array. Nothing
-  the caller does to it affects the sampler.
+- `ask()` returns a **fresh, caller-owned, C-contiguous** float64 array.
+  Nothing the caller does to it affects the sampler.
 - `tell` accepts anything castable to a float64 `(m,)` array.
-- A three-line pure-Python convenience `bayesrs.run(sampler, log_post, n_draws)`
-  wraps the canonical loop; it is sugar, not a separate code path.
-- Additional exports for the discrete/composition machinery: `Categorical`,
-  `DiscreteMetropolis`, `Gibbs`, `Block`. The loop and everything above are
-  unchanged for mixed models — see `GUIDE.md` §5 for the worked example.
+- A three-line pure-Python convenience `bayesrs.run(sampler, log_post, n_draws)` wraps the canonical loop; it is sugar, not a separate code path.
+- Additional exports for the discrete/composition machinery: `Categorical`, `DiscreteMetropolis`, `Gibbs`, `Block`.
+  The loop and everything above are unchanged for mixed models — see `GUIDE.md` §5 for the worked example.
 
 ---
 
 ## 8. C binding
 
-Second to be built, immediately after Python — it disciplines the core. Header
-generated by cbindgen; opaque handles; caller allocates what caller frees;
-every fallible function returns a status, message via thread-local
-`brs_last_error()`.
+Second to be built, immediately after Python — it disciplines the core.
+Header generated by cbindgen; opaque handles; caller allocates what caller frees; every fallible function returns a status, message via thread-local `brs_last_error()`.
 
 ```c
 #include "bayesrs.h"
@@ -522,37 +400,22 @@ double *out = malloc(len * sizeof *out);
 brs_draws(s, out, len);                      /* row-major (chain, draw, dim) */
 ```
 
-C is the one binding where `ask` exposes the library-owned buffer directly
-(valid until the next `brs_ask`) — C callers manage lifetimes anyway, and it
-keeps the C path allocation-free. `brs_space_offset(sp, "Sigma", &off, &len)`
-is `unpack` for C: compute offsets once, index forever.
+C is the one binding where `ask` exposes the library-owned buffer directly (valid until the next `brs_ask`) — C callers manage lifetimes anyway, and it keeps the C path allocation-free.
+`brs_space_offset(sp, "Sigma", &off, &len)` is `unpack` for C: compute offsets once, index forever.
 
-Forward compatibility: future samplers may return a different `m` on every
-call, so portable callers size buffers from the returned `m`, not from
-`n_chains` (the fixed `logp[8]` above is valid for v1 samplers only). The C ABI
-evolves only by **adding** functions — e.g. `brs_tell_grad(s, logp, grad, m)`
-when gradient samplers arrive — never by changing existing signatures.
+Forward compatibility: future samplers may return a different `m` on every call, so portable callers size buffers from the returned `m`, not from `n_chains` (the fixed `logp[8]` above is valid for v1 samplers only).
+The C ABI evolves only by **adding** functions — e.g. `brs_tell_grad(s, logp, grad, m)` when gradient samplers arrive — never by changing existing signatures.
 
-Also in the header: `brs_space_d_free`, `brs_space_names` (flattened, caller
-iterates), `brs_stats` (acceptance counts), `brs_space_free`, `brs_sampler_free`,
-`brs_random_walk_metropolis_new`, and setter-style tuning options
-(`brs_am_set_adapt_start`, …) called between `new` and the first `ask`.
+Also in the header: `brs_space_d_free`, `brs_space_names` (flattened, caller iterates), `brs_stats` (acceptance counts), `brs_space_free`, `brs_sampler_free`, `brs_random_walk_metropolis_new`, and setter-style tuning options (`brs_am_set_adapt_start`, …) called between `new` and the first `ask`.
 
-Discrete/composition surface: `brs_space_add_categorical(sp, name, shape,
-ndim, k)` (labels are a binding nicety; the C API deals in codes only),
-`brs_discrete_metropolis_new`, `brs_reanchor(s, logp, n_chains)`, and `Gibbs`
-built in the same setter style as tuning options: `brs_gibbs_new(sp, x0,
-n_chains, seed, &g)` then one `brs_gibbs_add_block(g, names, n_names,
-BRS_SAMPLER_RWM /* enum */)` per block, finalised by the first `brs_ask`
-(which validates the partition). Per-block tuning goes through
-`brs_gibbs_block_set_*` setters keyed by block index.
+Discrete/composition surface: `brs_space_add_categorical(sp, name, shape, ndim, k)` (labels are a binding nicety; the C API deals in codes only), `brs_discrete_metropolis_new`, `brs_reanchor(s, logp, n_chains)`, and `Gibbs` built in the same setter style as tuning options: `brs_gibbs_new(sp, x0, n_chains, seed, &g)` then one `brs_gibbs_add_block(g, names, n_names, BRS_SAMPLER_RWM /* enum */)` per block, finalised by the first `brs_ask` (which validates the partition).
+Per-block tuning goes through `brs_gibbs_block_set_*` setters keyed by block index.
 
 ---
 
 ## 9. R binding
 
-Built on extendr, released via r-universe first, CRAN once the interface has
-been stable for a cycle.
+Built on extendr, released via r-universe first, CRAN once the interface has been stable for a cycle.
 
 ```r
 library(bayesrs)
@@ -576,20 +439,12 @@ rhat(d)
 Settled R-specific decisions:
 
 - Verbs `ask`/`tell` — no collision with any base/stats generic.
-- Per-exchange matrices (`ask`, `x0`) are **`n_chains × d_constr`**, row per
-  chain, matching Python semantically.
-- `draws()` returns **`(draw, chain, dim)`** with dimnames from `names(space)` —
-  the orientation the `posterior` package's `as_draws_array()` expects, so
-  interop is one function call. (The core's native layout is `(chain, draw,
-  dim)`; the R binding permutes on extraction, once.)
+- Per-exchange matrices (`ask`, `x0`) are **`n_chains × d_constr`**, row per chain, matching Python semantically.
+- `draws()` returns **`(draw, chain, dim)`** with dimnames from `names(space)` — the orientation the `posterior` package's `as_draws_array()` expects, so interop is one function call.
+  (The core's native layout is `(chain, draw, dim)`; the R binding permutes on extraction, once.)
 - 1-based flattened names: `"mu[1]"`, `"Sigma[1,1]"`.
-- Discrete/composition surface: `categorical(k, labels = NULL)`;
-  `discrete_metropolis(space, x0, seed =)`; `gibbs(space, x0, seed =,
-  blocks = list(block(c("mu", "sigma"), "rwm"), block("z",
-  "discrete_metropolis")))`; `reanchor(s, logp)`. **Codes are 0-based even in
-  R** — they are wire format, identical in every language — but where
-  `labels` were declared, `as_label()`/`unpack` return proper factors, which
-  is the idiomatic surface R users should be steered to.
+- Discrete/composition surface: `categorical(k, labels = NULL)`; `discrete_metropolis(space, x0, seed =)`; `gibbs(space, x0, seed =, blocks = list(block(c("mu", "sigma"), "rwm"), block("z", "discrete_metropolis")))`; `reanchor(s, logp)`.
+  **Codes are 0-based even in R** — they are wire format, identical in every language — but where `labels` were declared, `as_label()`/`unpack` return proper factors, which is the idiomatic surface R users should be steered to.
 
 ---
 
@@ -617,20 +472,16 @@ These are *named now* so that adding them breaks nobody:
 | Opt-in live views (`params(live=True)`) if profiling ever justifies them | design note §4.1 |
 | Checkpoint/restore of full sampler state (serde) — state is designed to be serialisable from day one (ChaCha8 is counter-based) | §6 `position()` covers crude restarts meanwhile |
 
-**Explicit non-goal:** trans-dimensional (reversible-jump) sampling. A fixed
-`d_constr` for the lifetime of a sampler is load-bearing for the entire wire
-format, and we accept that constraint permanently. Model choice remains
-expressible in the standard fixed-dimension way: a `Categorical` model index
-plus padded per-model parameter blocks.
+**Explicit non-goal:** trans-dimensional (reversible-jump) sampling.
+A fixed `d_constr` for the lifetime of a sampler is load-bearing for the entire wire format, and we accept that constraint permanently.
+Model choice remains expressible in the standard fixed-dimension way: a `Categorical` model index plus padded per-model parameter blocks.
 
 ---
 
 ## 11. Rust core shape
 
 `bayesrs-core` is pure Rust, no binding code, no allocation in the hot path.
-It is also itself the fourth public interface: Rust users depend on the crate
-directly, with zero boundary cost, so its user-facing API follows the same
-contract and stability rules as the bindings.
+It is also itself the fourth public interface: Rust users depend on the crate directly, with zero boundary cost, so its user-facing API follows the same contract and stability rules as the bindings.
 
 ```rust
 pub struct ParamSpace { blocks: Vec<Block>, d_free: usize, d_constr: usize }
@@ -688,55 +539,24 @@ bayesrs/
 
 The spec is only credible if these tests exist from the start:
 
-1. **Transform properties** — `to_free ∘ to_constrained = id` (round trip to
-   float tolerance); `log_abs_det_jacobian` vs. finite differences; outputs of
-   `to_constrained` always satisfy the constraints **strictly, including at
-   extreme free values** (`z = ±40, ±1000`, where naive transforms round onto
-   the boundary — this pins the §4.2 nextafter clamp).
+1. **Transform properties** — `to_free ∘ to_constrained = id` (round trip to float tolerance); `log_abs_det_jacobian` vs. finite differences; outputs of `to_constrained` always satisfy the constraints **strictly, including at extreme free values** (`z = ±40, ±1000`, where naive transforms round onto the boundary — this pins the §4.2 nextafter clamp).
 2. **`pack`/`unpack` round trip** — including batch dimensions and broadcasting.
-3. **Protocol errors** — every error path in §2–§3 has a test asserting the
-   message names the operation, chain, and/or block.
-4. **Statistical correctness** — sample analytically known posteriors
-   (multivariate Gaussian; a bounded and a simplex parameter with conjugate
-   structure) and check moments/quantiles within Monte-Carlo tolerance;
-   acceptance rates in sane ranges.
-5. **Cross-language bit-reproducibility (CI)** — one fixed problem whose `logp`
-   uses only arithmetic that is bit-identical across languages (e.g.
-   `-0.5 * Σ θᵢ²` in a fixed evaluation order), run through Python, C, and R;
-   assert the three `draws()` arrays are byte-identical.
-6. **Determinism under `thin`** — thinned chain equals unthinned chain
-   subsampled.
-7. **Protocol-generality conformance** — a mock sampler in the test suite that
-   deliberately returns `m != n_chains`, varies `m` between calls, and
-   completes draws at different rates across chains (exercising the
-   min-across-chains `n_draws` rule and `draws()` truncation), driven through
-   **every binding's** tests. `Gibbs` now exercises multi-exchange draws for
-   real, but no shipped sampler varies `m` or completes raggedly, so the mock
-   remains the pre-paid compatibility test for NUTS.
-8. **Mixed-model oracle (signal detection)** — the model from
-   `signal_detection_demo.ipynb`: `y_t = μ + z·s_t + ε_t` with known pulse
-   shape `s`, priors `μ ~ N(0, 5²)`, `σ ~ Half-Normal(2)`,
-   `z ~ Categorical(2)` with a flat prior. Linear-Gaussian given `z`, so
-   `P(z = 1 | y)` and the conditional moments have exact answers (analytic
-   marginalisation over `μ`, one-dimensional quadrature over `σ`). Run
-   `Gibbs([RWM block, DiscreteMetropolis block])` and assert the estimates
-   agree within batch-means Monte-Carlo error, through **every binding**.
-   Then run the *same* model as **external composition** (two samplers, the
-   caller's own alternation with `reanchor`) and assert it passes too — plus
-   a negative control: the reanchor-omitted loop must measurably fail the
-   oracle, proving the trap the docs warn about is real and the test can see
-   it.
+3. **Protocol errors** — every error path in §2–§3 has a test asserting the message names the operation, chain, and/or block.
+4. **Statistical correctness** — sample analytically known posteriors (multivariate Gaussian; a bounded and a simplex parameter with conjugate structure) and check moments/quantiles within Monte-Carlo tolerance; acceptance rates in sane ranges.
+5. **Cross-language bit-reproducibility (CI)** — one fixed problem whose `logp` uses only arithmetic that is bit-identical across languages (e.g. `-0.5 * Σ θᵢ²` in a fixed evaluation order), run through Python, C, and R; assert the three `draws()` arrays are byte-identical.
+6. **Determinism under `thin`** — thinned chain equals unthinned chain subsampled.
+7. **Protocol-generality conformance** — a mock sampler in the test suite that deliberately returns `m != n_chains`, varies `m` between calls, and completes draws at different rates across chains (exercising the min-across-chains `n_draws` rule and `draws()` truncation), driven through **every binding's** tests.
+   `Gibbs` now exercises multi-exchange draws for real, but no shipped sampler varies `m` or completes raggedly, so the mock remains the pre-paid compatibility test for NUTS.
+8. **Mixed-model oracle (signal detection)** — the model from `signal_detection_demo.ipynb`: `y_t = μ + z·s_t + ε_t` with known pulse shape `s`, priors `μ ~ N(0, 5²)`, `σ ~ Half-Normal(2)`, `z ~ Categorical(2)` with a flat prior.
+   Linear-Gaussian given `z`, so `P(z = 1 | y)` and the conditional moments have exact answers (analytic marginalisation over `μ`, one-dimensional quadrature over `σ`).
+   Run `Gibbs([RWM block, DiscreteMetropolis block])` and assert the estimates agree within batch-means Monte-Carlo error, through **every binding**.
+   Then run the *same* model as **external composition** (two samplers, the caller's own alternation with `reanchor`) and assert it passes too — plus a negative control: the reanchor-omitted loop must measurably fail the oracle, proving the trap the docs warn about is real and the test can see it.
 
 ---
 
 ## 13. Remaining open items (non-blocking, decide during implementation)
 
-- Final default tuning constants for AM (`adapt_start`, `epsilon`, diminishing
-  schedule) — names frozen, values tunable until 1.0.
-- Exact ChaCha8 stream-derivation constants — frozen the day the first
-  cross-language test passes, documented in the book.
-- Whether `stats()` grows windowed (recent-history) acceptance rates alongside
-  cumulative ones.
-- Whether diagnostics should natively handle unordered `Categorical(k > 2)`
-  columns (e.g. computing R̂/ESS on per-state indicators automatically)
-  rather than documenting the caller-side recipe (§6).
+- Final default tuning constants for AM (`adapt_start`, `epsilon`, diminishing schedule) — names frozen, values tunable until 1.0.
+- Exact ChaCha8 stream-derivation constants — frozen the day the first cross-language test passes, documented in the book.
+- Whether `stats()` grows windowed (recent-history) acceptance rates alongside cumulative ones.
+- Whether diagnostics should natively handle unordered `Categorical(k > 2)` columns (e.g. computing R̂/ESS on per-state indicators automatically) rather than documenting the caller-side recipe (§6).
