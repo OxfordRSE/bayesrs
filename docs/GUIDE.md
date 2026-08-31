@@ -5,7 +5,8 @@ This is the friendly companion to `INTERFACE.md` (the precise specification) and
 students: it assumes you know what MCMC is, and assumes nothing about software
 engineering or about any particular programming language. The same worked
 example — a simple Bayesian linear regression — appears in Python, R, C, and
-Rust itself.
+Rust itself, and a second example (Section 5) adds a discrete parameter: was
+a signal present in a noisy recording, or not?
 
 ---
 
@@ -62,10 +63,11 @@ Three details of the loop, all designed to remove surprises:
    hands those back so you can evaluate them, and the first `tell` records
    their densities. Your loop is identical from the first iteration.
 2. **Count draws, not iterations.** The condition is "while the sampler has
-   fewer than N draws", not "repeat N times". For the samplers in this guide
-   the two are the same, but future samplers (e.g. NUTS) will sometimes need
-   several ask/tell rounds to produce one draw, and a loop written this way
-   will keep working unchanged.
+   fewer than N draws", not "repeat N times". For a single basic sampler the
+   two are the same, but a sampler that updates parameters in blocks
+   (Section 5) needs one round *per block* per draw, and future samplers
+   (e.g. NUTS) will need a variable number. A loop written this way keeps
+   working unchanged in every case.
 3. **Rows are evaluated independently.** Your job is only ever: for each row
    of the batch, return one number. You never need to know which row belongs
    to which chain.
@@ -97,7 +99,7 @@ space**. For the regression example:
 | `beta` | `Real` | slope — any real number |
 | `sigma` | `Bounded(0, ∞)` | noise standard deviation — must be positive |
 
-The first release supports four kinds:
+The first release supports five kinds:
 
 | kind | use it for |
 |---|---|
@@ -105,9 +107,14 @@ The first release supports four kinds:
 | `Bounded(lo, hi)` | quantities in an interval; either end may be infinite |
 | `Simplex(k)` | k non-negative numbers that sum to 1 (mixture weights, probabilities) |
 | `CovMatrix(n)` | an n×n covariance matrix (symmetric, positive-definite) |
+| `Categorical(k)` | one of k unordered states (a label, a model index, "is the signal there?") |
 
-(Integer and categorical parameters, and more matrix types, are planned for a
-later release.)
+A categorical parameter's value travels as a whole number, 0 to k−1 — exactly
+representable, never rounded — and you can attach text labels for readability.
+Discrete parameters need their own sampler, and usually appear alongside
+continuous ones; Section 5 shows how the two are combined. (Ordered integer
+parameters — counts, where "current ± 1" is a sensible move — and more matrix
+types are planned for a later release.)
 
 ### Why the *kind* matters, not just the name
 
@@ -535,7 +542,109 @@ ever runs.
 
 ---
 
-## 5. Reading the results
+## 5. A discrete parameter: is the signal there?
+
+Everything so far had continuous parameters only. This section adds one
+discrete unknown, using the model from `signal_detection_demo.ipynb`: a
+detector records 60 noisy time points, and a pulse of **known** shape may or
+may not be present,
+
+$$y_t = \mu + z\,s_t + \varepsilon_t, \qquad \varepsilon_t \sim \mathrm{N}(0, \sigma^2),$$
+
+with unknown baseline $\mu \sim \mathrm{N}(0, 5^2)$, noise level
+$\sigma \sim \text{Half-Normal}(2)$, and $z \in \{0, 1\}$ — pulse absent or
+present — with a 50:50 prior. The posterior probability that $z = 1$ *is* the
+detection probability, as direct as a posterior quantity gets.
+
+A discrete parameter cannot share a sampler with continuous ones: a Gaussian
+step lands on 0.37, which is not a state. (For the same reason, gradient-based
+samplers like NUTS are meaningless for it — there is no slope between
+categories.) So bayesrs makes you split the parameters into **blocks**, each
+owned by a kernel that suits it, and composes them with `Gibbs`: each draw,
+the continuous block takes its step with $z$ frozen, then $z$ takes its step
+with the continuous values frozen. You write **one** log-posterior over the
+full parameter set, exactly as before, and your loop does not change at all —
+each draw simply takes two trips through it (one per block) instead of one.
+
+```python
+import numpy as np
+from bayesrs import (ParamSpace, Real, Bounded, Categorical,
+                     RandomWalkMetropolis, DiscreteMetropolis, Gibbs, Block)
+
+# --- the known pulse shape, and one synthetic recording (pulse present) --
+t = np.arange(60)
+pulse = 0.5 * np.exp(-(t - 30.0)**2 / (2 * 5.0**2))
+rng = np.random.default_rng(1)
+y = 1.0 + pulse + rng.normal(0.0, 1.0, 60)        # mu=1, sigma=1, z=1
+
+# --- the parameter space -------------------------------------------------
+space = ParamSpace(
+    mu    = Real(),
+    sigma = Bounded(0, None),
+    z     = Categorical(2, labels=["absent", "present"]),
+)
+
+# --- one log-posterior over ALL parameters, discrete included -----------
+# p.z arrives as exactly 0.0 or 1.0, so it can be used in arithmetic
+# directly. The flat prior on z adds a constant, so it does not appear.
+def log_post(theta):
+    p = space.unpack(theta)
+    mean  = p.mu[:, None] + p.z[:, None] * pulse           # 4 x 60 table
+    ll    = -60 * np.log(p.sigma) - ((y - mean)**2).sum(axis=1) / (2 * p.sigma**2)
+    return ll - p.mu**2 / 50 - p.sigma**2 / 8
+
+# --- starting points, spread across both hypotheses ---------------------
+x0 = space.pack(
+    mu    = np.array([0.0,  1.0, -1.0, 2.0]),
+    sigma = np.array([1.0,  2.0,  0.5, 1.5]),
+    z     = np.array([0.0,  1.0,  0.0, 1.0]),
+)
+
+# --- two blocks, two kernels, one sampler -------------------------------
+s = Gibbs(space, x0, seed=42, blocks=[
+    Block(["mu", "sigma"], RandomWalkMetropolis),
+    Block(["z"],           DiscreteMetropolis),
+])
+
+while s.n_draws < 20_000:          # the same loop as every other example
+    s.tell(log_post(s.ask()))
+
+# --- results -------------------------------------------------------------
+p = space.unpack(s.draws())
+print("P(pulse present | data):", p.z[:, 5_000:].mean())
+print(s.stats()["blocks"][1]["acceptance_rate"])   # the discrete block's own rate
+```
+
+What `DiscreteMetropolis` does is ordinary Metropolis with a proposal suited
+to states rather than steps: it proposes one of the *other* states uniformly
+(for two states, simply the flip) and accepts or rejects by the usual rule.
+The chains for $\mu$ and $z$ are coupled in an intuitive way — during
+stretches where the chain believes $z = 0$, the baseline $\mu$ shifts up to
+absorb the bump — and the split of the draws by `p.z` shows it.
+
+Three things worth knowing:
+
+- **The same loop, more trips.** "Count draws, not iterations" (Section 2) is
+  doing real work here: a draw is one full sweep over the blocks, so the loop
+  goes round twice per draw. Your code never notices.
+- **If you *can* sum the discrete parameter out of your likelihood, do.**
+  For this model $p(y \mid \mu, \sigma) = \frac12 p(y \mid \mu, \sigma, z{=}0)
+  + \frac12 p(y \mid \mu, \sigma, z{=}1)$ is two evaluations and an average —
+  and then every parameter is continuous, any sampler works, and mixing is
+  typically better. Sample a discrete parameter when marginalising is
+  genuinely unavailable (many states, or states that change the likelihood's
+  structure), not by default.
+- **Blocks are not just for discrete parameters.** The same mechanism handles
+  any model where different parameters want different kernels — when
+  gradient-based samplers arrive, `Gibbs` will run NUTS on the smooth block
+  and `DiscreteMetropolis` on the discrete one, with this exact loop.
+
+The R, C, and Rust versions follow the same shape as their Section 4
+counterparts: declare a categorical block, list the blocks, keep the loop.
+
+---
+
+## 6. Reading the results
 
 **`draws()`** returns every stored draw of every chain, always as the actual
 parameters (a real `sigma`, never its logarithm). In Python the array is
@@ -559,7 +668,7 @@ your starting point), so discard an initial stretch, as the examples do.
 
 ---
 
-## 6. Common questions
+## 7. Common questions
 
 **How fast is the ask/tell round trip?** Crossing between your language and
 the library costs well under a microsecond per iteration — for any realistic
@@ -590,11 +699,12 @@ loop, so the batch of rows can be farmed out to multiple cores with your
 language's standard tools before you `tell`. The library neither knows nor
 cares how the numbers were computed.
 
-**What's coming later?** Adaptive Metropolis ships alongside RWM in the first
-release; planned next are gradient-based samplers (MALA, HMC, NUTS), integer
-and categorical parameters, more matrix types, and checkpointing. The
-interface in this guide is designed so those arrive without changing any code
-you write today.
+**What's coming later?** The first release ships random-walk Metropolis, its
+adaptive variant, the discrete kernel, and the `Gibbs` compositor. Planned
+next are gradient-based samplers (MALA, HMC, NUTS — which will slot into
+`Gibbs` blocks alongside the discrete kernel), ordered integer parameters,
+more matrix types, and checkpointing. The interface in this guide is designed
+so those arrive without changing any code you write today.
 
 ---
 
@@ -605,6 +715,9 @@ ask/tell exchange is always one of these: rows are chains, columns are
 parameter values in declaration order.
 
 **Batch** — all chains' proposals delivered together in one `ask()`.
+
+**Block** — a named subset of the parameters owned by one kernel inside
+`Gibbs`; each draw updates every block in turn (one **sweep**).
 
 **Burn-in** — the initial stretch of a chain, discarded because it reflects
 the starting point rather than the posterior.
