@@ -1,0 +1,22 @@
+# Virtual workspace root: no code lives here.
+# Crates land under crates/: bayesrs-core, bayesrs-py, bayesrs-capi.
+# The R package (r/bayesrs) is deliberately outside the workspace; it is built
+# by R's own tooling and depends on bayesrs-core by path.
+# Note: cargo commands error until the first crate exists (a virtual workspace
+# needs at least one member).
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/OxfordRSE/bayesrs"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# clippy defaults; CI promotes all warnings to errors with -D warnings
