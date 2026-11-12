@@ -9,3 +9,11 @@ repository.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+ndarray = "0.16"
+# No default features: all randomness comes from our own seeded ChaCha8
+# streams (INTERFACE.md §5.5), never from thread_rng / OS entropy.
+rand = { version = "0.9", default-features = false, features = ["std"] }
+rand_chacha = "0.9"
+rand_distr = "0.5"

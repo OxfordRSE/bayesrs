@@ -1,9 +1,22 @@
 //! Core MCMC engine for bayesrs.
 //!
-//! Currently a scaffold: [`hello`] exists so that every binding can expose one
-//! function while packaging, testing, and CI are wired up.
-//! The real library (samplers, transforms, diagnostics, RNG streams) is
-//! specified in `docs/INTERFACE.md`.
+//! The caller owns the loop: [`Sampler::ask`] hands out a batch of points,
+//! the caller evaluates their log densities, and [`Sampler::tell`] hands them
+//! back. The full contract is specified in `docs/INTERFACE.md`.
+//!
+//! Implemented so far: [`ParamSpace`] with the `Real` kind, and
+//! [`RandomWalkMetropolis`].
+
+mod error;
+mod rng;
+mod rwm;
+mod sampler;
+mod space;
+
+pub use error::Error;
+pub use rwm::{RandomWalkMetropolis, RwmOptions, RwmStats};
+pub use sampler::{Sampler, Tell};
+pub use space::{Block, Kind, ParamSpace, ParamSpaceBuilder, Transform};
 
 /// Returns a version-bearing greeting.
 ///
